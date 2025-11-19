@@ -4,29 +4,21 @@
  * Kompatibel mit WebApp v5.0
  */
 
-#include <ArduinoBLE.h>
+#include <bluefruit.h>
 #include "LSM6DS3.h"
 #include "Wire.h"
 
 // --- EINSTELLUNGEN ---
-// Schwellwert für Schusserkennung (in G-Kräften)
-// Dry Fire (Klicken): ca. 1.5 - 2.5
-// Live Fire (Scharf): ca. 3.0 - 5.0
 const float SHOT_THRESHOLD = 2.0; 
-
-// Mindestzeit zwischen zwei Schüssen (in ms), um "Prellen" zu verhindern
 const int SHOT_COOLDOWN = 200; 
-
-// Datenrate (in ms). 20ms = 50Hz. 
-// Schneller als 15ms kann bei Web Bluetooth zu Paketverlust führen.
 const int UPDATE_INTERVAL = 20; 
 
 // --- OBJEKTE ---
-LSM6DS3 myIMU(I2C_MODE, 0x6A); // I2C Adresse des internen Sensors
+LSM6DS3 myIMU(I2C_MODE, 0x6A);
 
-// UUIDs (Müssen exakt mit der WebApp übereinstimmen!)
-BLEService trainerService("19B10000-E8F2-537E-4F6C-D104768A1214");
-BLEStringCharacteristic sensorDataChar("19B10001-E8F2-537E-4F6C-D104768A1214", BLERead | BLENotify, 128);
+// BLE Service und Characteristic
+BLEService trainerService = BLEService(0x1214);
+BLECharacteristic sensorDataChar = BLECharacteristic(0x1215);
 
 // --- VARIABLEN ---
 float ax, ay, az;
@@ -45,59 +37,76 @@ void setup() {
   }
 
   // 2. BLE Starten
-  if (!BLE.begin()) {
-    Serial.println("BLE Error!");
-    while (1);
-  }
+  Bluefruit.begin();
+  Bluefruit.setName("Shooting Trainer");
+  Bluefruit.Periph.setConnectCallback(connect_callback);
+  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
 
-  // BLE Konfiguration
-  BLE.setLocalName("Shooting Trainer");
-  BLE.setAdvertisedService(trainerService);
-  trainerService.addCharacteristic(sensorDataChar);
-  BLE.addService(trainerService);
-  BLE.advertise();
+  // 3. Service und Characteristic konfigurieren
+  setupBLE();
+
+  // 4. Advertising starten
+  startAdvertising();
 
   Serial.println("Bluetooth ready. Waiting for connection...");
 }
 
+void setupBLE() {
+  // Service hinzufügen
+  trainerService.begin();
+
+  // Characteristic konfigurieren
+  sensorDataChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
+  sensorDataChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  sensorDataChar.setMaxLen(128);
+  sensorDataChar.begin();
+}
+
+void startAdvertising() {
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addTxPower();
+  Bluefruit.Advertising.addService(trainerService);
+  Bluefruit.Advertising.addName();
+  
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(32, 244);    // in units of 0.625 ms
+  Bluefruit.Advertising.setFastTimeout(30);      // seconds
+  Bluefruit.Advertising.start(0);                // 0 = Don't stop advertising
+}
+
+void connect_callback(uint16_t conn_handle) {
+  Serial.print("Verbunden mit: ");
+  Serial.println(conn_handle);
+}
+
+void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
+  Serial.println("Connection closed.");
+}
+
 void loop() {
-  // Auf Verbindung warten
-  BLEDevice central = BLE.central();
+  if (Bluefruit.connected()) {
+    long currentTime = millis();
 
-  if (central) {
-    Serial.print("Verbunden mit: ");
-    Serial.println(central.address());
-
-    while (central.connected()) {
-      long currentTime = millis();
-
-      // Loop-Timing einhalten (50Hz)
-      if (currentTime - lastUpdate >= UPDATE_INTERVAL) {
-        readSensorData();
-        detectShot(currentTime);
-        sendToWebapp();
-        lastUpdate = currentTime;
-      }
+    if (currentTime - lastUpdate >= UPDATE_INTERVAL) {
+      readSensorData();
+      detectShot(currentTime);
+      sendToWebapp();
+      lastUpdate = currentTime;
     }
-    
-    Serial.println("Connection closed.");
   }
 }
 
 void readSensorData() {
-  // Gyroskop Daten lesen (Winkelgeschwindigkeit in dps)
   gx = myIMU.readFloatGyroX();
   gy = myIMU.readFloatGyroY();
   gz = myIMU.readFloatGyroZ();
 
-  // Beschleunigung lesen (für Schusserkennung)
   ax = myIMU.readFloatAccelX();
   ay = myIMU.readFloatAccelY();
   az = myIMU.readFloatAccelZ();
 }
 
 void detectShot(long currentTime) {
-  // Vektor-Summe der Beschleunigung berechnen (Betrag)
   float magnitude = sqrt(ax*ax + ay*ay + az*az);
 
   if (magnitude > SHOT_THRESHOLD && (currentTime - lastShotTime > SHOT_COOLDOWN)) {
@@ -109,7 +118,6 @@ void detectShot(long currentTime) {
 }
 
 void sendToWebapp() {
-  // JSON String bauen
   String json = "{";
   json += "\"gx\":" + String(gx, 2) + ",";
   json += "\"gy\":" + String(gy, 2) + ",";
@@ -117,6 +125,5 @@ void sendToWebapp() {
   json += "\"s\":" + String(shotTriggered ? 1 : 0);
   json += "}";
 
-  // Daten senden
-  sensorDataChar.writeValue(json);
+  sensorDataChar.notify(json.c_str(), json.length());
 }
