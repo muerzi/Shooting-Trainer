@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Shooting Trainer v1</title>
+    <style>
+        :root {
+            --bg-color: #121212; --text-color: #eee; --toolbar-bg: #1e1e1e;
+            --panel-bg: rgba(30, 30, 30, 0.98); --canvas-bg-outer: #2a2a2a;
+            --canvas-bg-inner: #121212; --shadow-color: rgba(0,0,0,0.5);
+            --accent-color: #007bff; --border-color: #444;
+        }
+        body.light-mode {
+            --bg-color: #f0f0f2; --text-color: #222; --toolbar-bg: #ffffff;
+            --panel-bg: rgba(255, 255, 255, 0.98); --canvas-bg-outer: #e0e0e0;
+            --canvas-bg-inner: #f0f0f2; --shadow-color: rgba(0,0,0,0.1); --border-color: #ccc;
+        }
+        body { margin: 0; background-color: var(--bg-color); color: var(--text-color); font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100vh; transition: background 0.3s, color 0.3s; }
+        #toolbar { padding: 10px 15px; background: var(--toolbar-bg); display: flex; gap: 10px; align-items: center; box-shadow: 0 2px 5px var(--shadow-color); z-index: 20; border-bottom: 1px solid var(--border-color); }
+        .btn-group { display: flex; gap: 8px; } .spacer { flex-grow: 1; }
+        .btn { background: var(--accent-color); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: bold; white-space: nowrap; transition: transform 0.1s; }
+        .btn:active { transform: scale(0.95); } .btn:disabled { opacity: 0.5; filter: grayscale(1); }
+        .btn-icon { background: transparent; color: var(--text-color); font-size: 20px; padding: 5px 10px; border: 1px solid var(--border-color); }
+        .btn-danger { background: #dc3545; } .btn-demo { background: #6c757d; }
+        #settings-panel { position: absolute; top: 60px; right: 10px; width: 300px; background: var(--panel-bg); padding: 15px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 30; display: none; border: 1px solid var(--border-color); max-height: 80vh; overflow-y: auto; color: var(--text-color); }
+        #settings-panel.visible { display: block; }
+        h3 { margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; }
+        h4 { margin: 15px 0 5px 0; font-size: 12px; text-transform: uppercase; opacity: 0.7; }
+        .control-group { margin-bottom: 12px; } .control-group label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; } .control-group input[type=range], .control-group select { width: 100%; }
+        #canvas-container { flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; background: radial-gradient(circle at center, var(--canvas-bg-outer) 0%, var(--canvas-bg-inner) 100%); width: 100%; overflow: hidden; }
+        canvas { border-radius: 50%; box-shadow: 0 0 30px var(--shadow-color); cursor: crosshair; transition: width 0.3s, height 0.3s; }
+        #last-score { position: absolute; top: 20px; right: 20px; font-size: 60px; font-weight: bold; color: var(--text-color); opacity: 0.5; pointer-events: none; font-family: monospace; }
+        #centerBtn { position: absolute; bottom: 15px; right: 15px; padding: 10px 15px; background: rgba(220, 53, 69, 0.7); backdrop-filter: blur(4px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 12px; border: 1px solid rgba(255,255,255,0.2); }
+        #centerBtn:hover { background: rgba(220, 53, 69, 1.0); }
+        #history-bar { height: 70px; background: var(--toolbar-bg); border-top: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 15px; gap: 10px; overflow-x: auto; z-index: 15; }
+        .history-label { font-size: 12px; font-weight: bold; color: var(--text-color); opacity: 0.7; margin-right: 5px;}
+        .shot-bubble { width: 40px; height: 40px; border-radius: 50%; background: #333; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 14px; color: white; flex-shrink: 0; border: 2px solid transparent; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .score-high { background: #28a745; } .score-mid { background: #ffc107; color: #000; } .score-low { background: #dc3545; }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <div class="btn-group"><button id="connectBtn" class="btn">Verbinden</button><button id="demoBtn" class="btn btn-demo">Demo</button></div>
+        <div class="spacer"></div>
+        <button id="themeBtn" class="btn btn-icon" title="Hell/Dunkel">☀️</button><button id="settingsBtn" class="btn btn-icon" title="Einstellungen">⚙️</button>
+    </div>
+    <div id="settings-panel">
+        <h3>Einstellungen</h3>
+        <h4>Zielscheibe</h4>
+        <div class="control-group"><label>Größe (Entfernung)</label><input type="range" id="inp-targetSize" min="0.3" max="1.0" step="0.05" value="0.8"></div>
+        <div class="control-group"><label>Stil</label><select id="sel-targetStyle"><option value="issf">ISSF</option><option value="bw">Schwarz/Weiß</option><option value="neon">Neon</option></select></div>
+        <h4>Sensor</h4>
+        <div class="control-group"><label><input type="checkbox" id="chk-invertX"> X-Achse umkehren</label><label><input type="checkbox" id="chk-invertY"> Y-Achse umkehren</label><label><input type="checkbox" id="chk-swapXY"> Achsen tauschen</label></div>
+        <div class="control-group"><label>Empfindlichkeit: <span id="val-sens">3.0</span></label><input type="range" id="inp-sens" min="0.5" max="10.0" step="0.1" value="3.0"></div>
+        <h4>Demo</h4>
+        <div class="control-group"><label>Fehler-Typ:</label><select id="sel-demoError"><option value="none">Keiner</option><option value="mucken">Mucken (Tief-Links)</option><option value="reissen">Reißen (Rechts-Tief)</option></select></div>
+        <div class="control-group"><label>Intensität: <span id="val-errInt">50</span>%</label><input type="range" id="inp-errInt" min="0" max="200" step="10" value="50"></div>
+        <button id="resetParams" class="btn btn-danger" style="width:100%; margin-top:10px;">Reset All</button>
+    </div>
+    <div id="canvas-container"><canvas id="targetCanvas"></canvas><div id="last-score"></div><button id="centerBtn" class="btn btn-danger">🎯 ZENTRIEREN</button></div>
+    <div id="history-bar"><div class="history-label">LETZTE 10:</div><div id="history-list" style="display:flex; gap:10px;"><span style="color:var(--text-color); opacity:0.5; font-size:12px;">Noch keine Daten</span></div></div>
+    <script>
+        const SERVICE_UUID = "19b10000-e8f2-537e-4f6c-d104768a1214"; const CHAR_UUID = "19b10001-e8f2-537e-4f6c-d104768a1214"; const TRACE_LENGTH = 200; 
+        let config = { sensitivity: 3.0, targetSizeScale: 0.8, targetStyle: 'issf', invertX: false, invertY: false, swapXY: false, isLightMode: false };
+        let demoParams = { errorType: 'none', errorInt: 50, amp: 5.0, freq: 0.5, recoil: 400 };
+        let device, characteristic, canvas, ctx, centerX, centerY, baseRadius, drawRadius, weaponPos = { x: 0, y: 0 }, traceHistory = [], lastHitMarker = null, shotHistory = [], lastTime = 0, shotCooldown = false, isDemoRunning = false;
+        window.onload = () => { canvas = document.getElementById('targetCanvas'); ctx = canvas.getContext('2d'); resizeCanvas(); window.addEventListener('resize', resizeCanvas); setupUI(); requestAnimationFrame(drawLoop); };
+        function setupUI() {
+            document.getElementById('themeBtn').addEventListener('click', () => { config.isLightMode = !config.isLightMode; document.body.classList.toggle('light-mode', config.isLightMode); document.getElementById('themeBtn').innerText = config.isLightMode ? "🌙" : "☀️"; });
+            document.getElementById('settingsBtn').addEventListener('click', () => document.getElementById('settings-panel').classList.toggle('visible'));
+            document.getElementById('inp-targetSize').addEventListener('input', (e) => { config.targetSizeScale = parseFloat(e.target.value); resizeCanvas(); });
+            document.getElementById('sel-targetStyle').addEventListener('change', (e) => config.targetStyle = e.target.value);
+            ['chk-invertX', 'chk-invertY', 'chk-swapXY'].forEach(id => document.getElementById(id).addEventListener('change', (e) => config[id.replace('chk-', '')] = e.target.checked));
+            document.getElementById('inp-sens').addEventListener('input', (e) => { config.sensitivity = parseFloat(e.target.value); document.getElementById('val-sens').innerText = config.sensitivity; });
+            document.getElementById('sel-demoError').addEventListener('change', (e) => demoParams.errorType = e.target.value);
+            document.getElementById('inp-errInt').addEventListener('input', (e) => { demoParams.errorInt = parseInt(e.target.value); document.getElementById('val-errInt').innerText = demoParams.errorInt; });
+            document.getElementById('resetParams').addEventListener('click', () => location.reload());
+            document.getElementById('centerBtn').addEventListener('click', () => { weaponPos = { x: 0, y: 0 }; traceHistory = []; lastHitMarker = null; document.getElementById('last-score').innerText = ""; });
+        }
+        function resizeCanvas() { const c = document.getElementById('canvas-container'); const s = Math.min(c.clientWidth, c.clientHeight) - 40; canvas.width = s; canvas.height = s; centerX = s/2; centerY = s/2; baseRadius = s/2; drawRadius = baseRadius * config.targetSizeScale; }
+        function handleShot(x, y) {
+            if (shotCooldown) return; shotCooldown = true; lastHitMarker = { x: x, y: y };
+            const f = document.createElement('div'); f.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;background:white;opacity:0.6;pointer-events:none;z-index:99;"; document.body.appendChild(f);
+            let dist = Math.sqrt(x*x + y*y); let score = Math.max(0, 10 - (dist / (drawRadius/10))); if (score > 10) score = Math.min(10.9, score);
+            document.getElementById('last-score').innerText = score.toFixed(1);
+            shotHistory.unshift(score); if(shotHistory.length>10) shotHistory.pop(); updateHistory();
+            let op = 0.6, t = setInterval(() => { op -= 0.1; f.style.opacity = op; if(op<=0) { clearInterval(t); f.remove(); shotCooldown=false; } }, 50);
+        }
+        function updateHistory() { const l = document.getElementById('history-list'); l.innerHTML = ""; shotHistory.forEach(s => { const e = document.createElement('div'); e.className = 'shot-bubble'; e.innerText = Math.floor(s); e.classList.add(s>=9?'score-high':s>=7?'score-mid':'score-low'); l.appendChild(e); }); }
+        function drawLoop() { ctx.clearRect(0, 0, canvas.width, canvas.height); drawTarget(); if (lastHitMarker) drawHitMarker(lastHitMarker); drawTrace(); drawCrosshair(); requestAnimationFrame(drawLoop); }
+        function drawTarget() {
+            const r = drawRadius, step = r/10;
+            let cols = config.targetStyle === 'bw' ? {bg:['#fff','#fff','#000','#000','#000','#000','#fff','#fff','#fff','#fff'], l:'#888'} : config.targetStyle === 'neon' ? {bg:Array(10).fill('transparent'), l:'#00ff00'} : {bg:['#fff','#fff','#000','#000','#000','#000','#dcc090','#dcc090','#dcc090','#dcc090'], l:'#ccc'};
+            for(let i=0; i<10; i++) {
+                ctx.beginPath(); ctx.arc(centerX, centerY, r-(i*step), 0, 2*Math.PI);
+                if(config.targetStyle === 'neon') { ctx.fillStyle = '#111'; ctx.fill(); ctx.strokeStyle = (i<4)?'#00ff00':'#ff0055'; ctx.lineWidth = 2; ctx.stroke(); }
+                else { ctx.fillStyle = cols.bg[i]; ctx.fill(); ctx.strokeStyle = (i<6)?'#444':cols.l; ctx.lineWidth = 1; ctx.stroke(); }
+            }
+            ctx.beginPath(); ctx.arc(centerX, centerY, step/2, 0, 2*Math.PI); ctx.fillStyle = config.targetStyle === 'neon'?'#00ff00':(config.targetStyle==='bw'?'#fff':'#dcc090'); ctx.fill();
+        }
+        function processData(d, dt) {
+            let gx = d.gz, gy = d.gy; if(config.swapXY) {let t=gx; gx=gy; gy=t;} if(config.invertX) gx=-gx; if(config.invertY) gy=-gy;
+            if(d.s === 1) handleShot(weaponPos.x, weaponPos.y);
+            let dx = gx * dt * config.sensitivity * 20, dy = gy * dt * config.sensitivity * 20;
+            weaponPos.x -= dx; weaponPos.y += dy;
+            let dist = Math.sqrt(weaponPos.x*weaponPos.x + weaponPos.y*weaponPos.y); if (dist > drawRadius) { let a = Math.atan2(weaponPos.y, weaponPos.x); weaponPos.x = Math.cos(a)*drawRadius; weaponPos.y = Math.sin(a)*drawRadius; }
+            traceHistory.push({ x: weaponPos.x, y: weaponPos.y, speed: Math.sqrt(gx*gx + gy*gy), timestamp: performance.now() }); if(traceHistory.length > TRACE_LENGTH) traceHistory.shift();
+        }
+        document.getElementById('demoBtn').addEventListener('click', () => {
+            if(isDemoRunning) return; isDemoRunning=true; weaponPos={x:0,y:0}; traceHistory=[]; lastHitMarker=null; document.getElementById('last-score').innerText=""; document.getElementById('demoBtn').innerText="Läuft..."; document.getElementById('demoBtn').disabled=true;
+            let start = performance.now(), fired = false;
+            function step() {
+                if(!isDemoRunning) { document.getElementById('demoBtn').innerText="Demo"; document.getElementById('demoBtn').disabled=false; return; }
+                let t = (performance.now() - start)/1000, fd = {gx:0, gy:0, gz:0, s:0};
+                if(t > 8.0) { isDemoRunning=false; step(); return; }
+                let bx = Math.sin(t*demoParams.freq)*demoParams.amp, by = Math.cos(t*0.6)*(demoParams.amp*0.8);
+                fd.gz = bx + weaponPos.x*0.6 + (Math.random()-0.5); fd.gy = by - weaponPos.y*0.6 + (Math.random()-0.5);
+                if(t>4.7 && t<5.0 && demoParams.errorType!=='none') {
+                    let i=(t-4.7)/0.3, s = demoParams.errorInt/100.0;
+                    if(demoParams.errorType==='mucken') { fd.gy+=200*i*s; fd.gz+=150*i*s; }
+                    if(demoParams.errorType==='reissen') { fd.gy+=100*i*s; fd.gz-=250*i*s; }
+                }
+                if(t>=5.0 && !fired) { fired=true; fd.s=1; fd.gy-=demoParams.recoil; fd.gz+=(Math.random()-0.5)*(demoParams.recoil/5); }
+                else if(t>5.0) { let r=t-5.0; fd.gy+=Math.sin(r*4)*(20/(r+0.5)); }
+                processData(fd, 0.016); requestAnimationFrame(step);
+            }
+            step();
+        });
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            isDemoRunning=false;
+            try {
+                device = await navigator.bluetooth.requestDevice({ filters: [{ name: 'Shooting Trainer' }], optionalServices: [SERVICE_UUID] });
+                device.addEventListener('gattserverdisconnected', () => { document.getElementById('connectBtn').innerText="Verbinden"; document.getElementById('connectBtn').classList.remove("btn-success"); });
+                const s = await (await device.gatt.connect()).getPrimaryService(SERVICE_UUID);
+                characteristic = await s.getCharacteristic(CHAR_UUID);
+                await characteristic.startNotifications();
+                characteristic.addEventListener('characteristicvaluechanged', (e) => { if(!isDemoRunning) try { let dt=(performance.now()-lastTime)/1000; lastTime=performance.now(); if(dt<1.0) processData(JSON.parse(new TextDecoder().decode(e.target.value)), dt); } catch(e){} });
+                document.getElementById('connectBtn').innerText="Verbunden"; document.getElementById('connectBtn').classList.add("btn-success"); lastTime=performance.now();
+            } catch(e) { alert(e); }
+        });
+        function drawTrace() { if(traceHistory.length<2) return; for(let i=1; i<traceHistory.length; i++) { let p1=traceHistory[i-1], p2=traceHistory[i], r=Math.min(255, Math.max(0, (p2.speed-5)*10)), g=Math.min(255, Math.max(0, 255-(p2.speed-5)*10)), a=1-((traceHistory.length-i)/traceHistory.length); ctx.beginPath(); ctx.moveTo(centerX+p1.x, centerY+p1.y); ctx.lineTo(centerX+p2.x, centerY+p2.y); ctx.strokeStyle=`rgba(${r},${g},0,${a})`; ctx.lineWidth=4; ctx.lineCap="round"; ctx.stroke(); } }
+        function drawHitMarker(m) { let mx=centerX+m.x, my=centerY+m.y, s=12; ctx.save(); ctx.strokeStyle="#ff0000"; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(mx-s, my-s); ctx.lineTo(mx+s, my+s); ctx.moveTo(mx+s, my-s); ctx.lineTo(mx-s, my+s); ctx.stroke(); ctx.restore(); }
+        function drawCrosshair() { let ax=centerX+weaponPos.x, ay=centerY+weaponPos.y; ctx.shadowColor="black"; ctx.shadowBlur=5; ctx.beginPath(); ctx.arc(ax, ay, 5, 0, 2*Math.PI); ctx.fillStyle="#0f0"; ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle="rgba(0,0,0,0.5)"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(ax-10, ay); ctx.lineTo(ax+10, ay); ctx.moveTo(ax, ay-10); ctx.lineTo(ax, ay+10); ctx.stroke(); }
+    </script>
+</body>
+</html>
